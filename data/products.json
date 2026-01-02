@@ -1,0 +1,12 @@
+[
+  {
+    "id": "orchid",
+    "name": "Orchid",
+    "price": 1290000,
+    "frameWidth": 138,
+    "lensWidth": 50,
+    "bridge": 18,
+    "temple": 145,
+    "image": "/frames/orchid.png"
+  }
+]

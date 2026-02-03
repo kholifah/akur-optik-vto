@@ -2,9 +2,11 @@
 
 import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
+import dynamic from 'next/dynamic';
 import { Product, products as allProducts } from '@/lib/products';
 import { useAppDispatch, addToCart } from '@/store'
-import VTOCanvas from '@/components/VTOCanvas';
+
+const VTOGlassesAR = dynamic(() => import('@/components/VTOGlassesAR'), { ssr: false });
 
 type Props = {
 	product: Product | null;
@@ -48,20 +50,6 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 			document.head.appendChild(s)
 		}
 
-		// Load WebAR.rocks.face library for AR face detection
-		const arSrc = 'https://cdn.jsdelivr.net/gh/WebAR-rocks/WebAR.rocks.face@master/dist/webar.rocks.face.min.js'
-		if (!document.querySelector(`script[src="${arSrc}"]`)) {
-			const s2 = document.createElement('script')
-			s2.src = arSrc
-			s2.async = true
-			s2.onload = () => {
-				// Library loaded; initialization will happen when AR tab is selected
-			}
-			s2.onerror = () => {
-				console.warn('WebAR.rocks.face failed to load')
-			}
-			document.head.appendChild(s2)
-		}
 	}, [view])
 
 	if (!isOpen || !product) return null;
@@ -75,8 +63,7 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 	// variants with same product name (e.g., color variants)
 	const variants = allProducts.filter((p) => p.name === product.name)
 	const currentProduct = variants.find((v) => v.id === selectedId) ?? product
-	const modelUrl = currentProduct.modelUrl ?? `/models3D/glasses1.glb`
-	const modelOffset = currentProduct.modelOffset ?? { x: 0, y: 0, z: 0, scale: 1, rotation: 0 }
+	const modelUrl = `/models3D/glasses1.glb`
 
 	const rating = 4.8
 	const reviews = 7
@@ -97,7 +84,7 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 						<div className="relative h-[420px] bg-black/5 rounded-lg overflow-hidden">
 							{view === 'virtual' ? (
 								virtualTab === 'ar' ? (
-									<VTOCanvas imageSrc={currentProduct.image} alt={currentProduct.name} frameWidthMm={currentProduct.frameWidth} modelUrl={modelUrl} modelOffset={modelOffset} />
+									<VTOGlassesAR modelUrl={modelUrl} />
 								) : (
 									React.createElement('model-viewer', {
 										src: modelUrl,

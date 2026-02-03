@@ -22,7 +22,8 @@
 // 	const [streamError, setStreamError] = useState<string | null>(null)
 // 	const [uploadedImage, setUploadedImage] = useState<string | null>(null)
 // 	const [useWebARRocks, setUseWebARRocks] = useState(false)
-// 	const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
+// 	const [devices, setDevices] = useState<MediaDevic
+// eInfo[]>([])
 // 	const [deviceId, setDeviceId] = useState<string | null>(null)
 
 // 	// Overlay transform state (px, px, scale, rotation degrees)
@@ -405,6 +406,9 @@ export default function VTOCanvas({
 
   const [uploadedImage, setUploadedImage] = useState<string | null>(null)
   const [streamError, setStreamError] = useState<string | null>(null)
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
+  const [deviceId, setDeviceId] = useState<string | null>(null)
+  const [retrySeed, setRetrySeed] = useState(0)
 
   // realtime AR transform
   const [x, setX] = useState(0)
@@ -436,12 +440,39 @@ export default function VTOCanvas({
       try {
         if (!videoRef.current) return
 
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user" },
-        })
+        // stop any existing stream before starting a new one
+        try {
+          const prev = videoRef.current.srcObject as MediaStream | null
+          prev?.getTracks().forEach((t) => t.stop())
+          videoRef.current.srcObject = null
+        } catch {}
+
+        // refresh device list
+        try {
+          const list = await navigator.mediaDevices.enumerateDevices()
+          setDevices(list.filter((d) => d.kind === "videoinput"))
+        } catch {}
+
+        const primaryConstraints: MediaStreamConstraints = {
+          video: deviceId
+            ? { deviceId: { exact: deviceId } }
+            : { facingMode: "user" },
+        }
+
+        let stream: MediaStream
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(primaryConstraints)
+        } catch (e: any) {
+          // fallback to default camera if facingMode fails
+          if (e?.name === "NotReadableError" || e?.name === "OverconstrainedError") {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true })
+          } else {
+            throw e
+          }
+        }
 
         videoRef.current.srcObject = stream
-        await videoRef.current.play()
+        await videoRef.current.play().catch(() => {})
 
         await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js")
         await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js")
@@ -507,8 +538,39 @@ export default function VTOCanvas({
         })
 
         cameraInstance.start()
-      } catch (err: any) {
-        setStreamError("Camera access failed. Please allow permissions.")
+      } catch (err: unknown) {
+        let name = ""
+        let message = ""
+        if (err && typeof err === "object") {
+          if ("name" in err) name = String((err as any).name)
+          if ("message" in err) message = String((err as any).message)
+        }
+
+        if (name === "NotAllowedError" || name === "SecurityError") {
+          setStreamError(
+            "Camera access blocked. Please allow camera permissions in your browser."
+          )
+        } else if (name === "NotReadableError" || name === "AbortError") {
+          setStreamError(
+            "Could not start video source. Another app may be using the camera. Close other apps and retry."
+          )
+        } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+          setStreamError(
+            "No camera device found. Please connect a camera or choose another device."
+          )
+        } else if (
+          location.protocol !== "https:" &&
+          location.hostname !== "localhost" &&
+          location.hostname !== "127.0.0.1"
+        ) {
+          setStreamError(
+            "Camera requires HTTPS. Please use https:// or localhost."
+          )
+        } else if (message) {
+          setStreamError(message)
+        } else {
+          setStreamError("Camera access failed. Please allow permissions.")
+        }
       }
     }
 
@@ -523,7 +585,7 @@ export default function VTOCanvas({
         s?.getTracks().forEach((t) => t.stop())
       } catch {}
     }
-  }, [frameWidthMm])
+  }, [frameWidthMm, deviceId, retrySeed])
 
   // ---------------------------
   // RENDER
@@ -576,6 +638,30 @@ export default function VTOCanvas({
 
         {/* CONTROLS */}
         <div className="absolute left-2 top-2 flex gap-2 z-10">
+          {devices.length > 0 && (
+            <select
+              value={deviceId ?? ""}
+              onChange={(e) => setDeviceId(e.target.value || null)}
+              className="bg-white/90 px-2 py-1 rounded text-xs"
+            >
+              <option value="">Default camera</option>
+              {devices.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || d.deviceId}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setStreamError(null)
+              setRetrySeed((s) => s + 1)
+            }}
+            className="bg-white/90 px-2 py-1 rounded text-xs"
+          >
+            Retry
+          </button>
           <label className="bg-white/90 px-2 py-1 rounded text-xs cursor-pointer">
             Upload
             <input

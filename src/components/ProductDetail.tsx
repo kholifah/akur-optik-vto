@@ -60,7 +60,7 @@ export default function ProductDetail({ product }: Props) {
 
             {/* Price */}
             <div className="mt-4 text-2xl font-semibold">
-              Rp {product.price.toLocaleString()}
+              Rp {product.price.toLocaleString("id-ID")}
             </div>
 
             {/* Description */}

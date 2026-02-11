@@ -1,13 +1,13 @@
 
 "use client"
 
-import React, { useMemo, useState, useEffect } from "react"
+import React, { useMemo, useState, useEffect, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import ProductCard from "@/components/ProductCard"
 import ProductModal from "@/components/ProductModal"
 import { products as allProducts, Product } from "@/lib/products"
 
-export default function ShopPage() {
+function ShopPageContent() {
   const searchParams = useSearchParams()
 
   const initialCategory =
@@ -22,7 +22,7 @@ export default function ShopPage() {
   // 🔄 Update category if URL changes
   useEffect(() => {
     if (searchParams.get("category")) {
-      setCategory(searchParams.get("category") as any)
+      setCategory(searchParams.get("category") as "all" | "eyeglasses" | "sunglasses")
     }
   }, [searchParams])
 
@@ -81,7 +81,7 @@ export default function ShopPage() {
         {["all", "eyeglasses", "sunglasses"].map((c) => (
           <button
             key={c}
-            onClick={() => setCategory(c as any)}
+            onClick={() => setCategory(c as "all" | "eyeglasses" | "sunglasses")}
             className={`px-3 py-1 rounded ${
               category === c
                 ? "bg-accent text-accent-foreground"
@@ -114,5 +114,13 @@ export default function ShopPage() {
         />
       )}
     </div>
+  )
+}
+
+export default function ShopPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8">Loading...</div>}>
+      <ShopPageContent />
+    </Suspense>
   )
 }

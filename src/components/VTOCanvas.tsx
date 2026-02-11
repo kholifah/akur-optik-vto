@@ -393,12 +393,16 @@ type Props = {
   imageSrc: string
   alt?: string
   frameWidthMm?: number
+  modelUrl?: string
+  modelOffset?: { x?: number; y?: number; z?: number; scale?: number; rotation?: number }
 }
 
 export default function VTOCanvas({
   imageSrc,
   alt,
   frameWidthMm = 135, // average glasses width
+  modelUrl, // eslint-disable-line @typescript-eslint/no-unused-vars
+  modelOffset, // eslint-disable-line @typescript-eslint/no-unused-vars
 }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -419,6 +423,7 @@ export default function VTOCanvas({
     let mounted = true
     let cameraInstance: any = null
     let faceMesh: any = null
+    const video = videoRef.current
 
     async function loadScript(src: string) {
       if (document.querySelector(`script[src="${src}"]`)) return
@@ -434,14 +439,14 @@ export default function VTOCanvas({
 
     async function init() {
       try {
-        if (!videoRef.current) return
+        if (!video) return
 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "user" },
         })
 
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
+        video.srcObject = stream
+        await video.play()
 
         await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js")
         await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js")
@@ -473,8 +478,8 @@ export default function VTOCanvas({
           const rect = containerRef.current?.getBoundingClientRect()
           if (!rect) return
 
-          const vw = videoRef.current!.videoWidth
-          const vh = videoRef.current!.videoHeight
+          const vw = video!.videoWidth
+          const vh = video!.videoHeight
 
           const left: [number, number] = [
             leftEye.x * vw,
@@ -498,16 +503,16 @@ export default function VTOCanvas({
           setRotation(t.rotation)
         })
 
-        cameraInstance = new Camera(videoRef.current, {
+        cameraInstance = new Camera(video, {
           onFrame: async () => {
-            await faceMesh.send({ image: videoRef.current })
+            await faceMesh.send({ image: video })
           },
           width: 640,
           height: 480,
         })
 
         cameraInstance.start()
-      } catch (err: any) {
+      } catch {
         setStreamError("Camera access failed. Please allow permissions.")
       }
     }
@@ -519,7 +524,7 @@ export default function VTOCanvas({
       try {
         cameraInstance?.stop()
         faceMesh?.close()
-        const s = videoRef.current?.srcObject as MediaStream
+        const s = video?.srcObject as MediaStream
         s?.getTracks().forEach((t) => t.stop())
       } catch {}
     }
@@ -538,10 +543,12 @@ export default function VTOCanvas({
       >
         {/* CAMERA OR UPLOADED IMAGE */}
         {uploadedImage ? (
-          <img
+          <Image
             src={uploadedImage}
             className="absolute inset-0 w-full h-full object-cover"
             alt="uploaded"
+            fill
+            unoptimized
           />
         ) : (
           <video

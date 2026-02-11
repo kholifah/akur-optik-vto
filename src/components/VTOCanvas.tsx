@@ -401,8 +401,8 @@ export default function VTOCanvas({
   imageSrc,
   alt,
   frameWidthMm = 135, // average glasses width
-  modelUrl, // eslint-disable-line @typescript-eslint/no-unused-vars
-  modelOffset, // eslint-disable-line @typescript-eslint/no-unused-vars
+  modelUrl: _modelUrl, // Reserved for future 3D model implementation
+  modelOffset: _modelOffset, // Reserved for future 3D model implementation
 }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -546,7 +546,7 @@ export default function VTOCanvas({
           <Image
             src={uploadedImage}
             className="absolute inset-0 w-full h-full object-cover"
-            alt="uploaded"
+            alt="User uploaded image for virtual try-on"
             fill
             unoptimized
           />

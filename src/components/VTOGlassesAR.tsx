@@ -14,7 +14,6 @@ type Props = {
   occluderUrl?: string
   envMapUrl?: string
   cameraOnly?: boolean
-  autoFitModel?: boolean
 }
 
 type VideoSettingsOverride = MediaTrackConstraints | true
@@ -64,7 +63,6 @@ const VTOModelContainer = (props: {
   faceIndex: number
   glassesBranches: GlassesBranchSpec
   isMirrorReady: boolean
-  autoFitModel: boolean
   onModelError?: (message: string | null) => void
 }) => {
   const [modelScene, setModelScene] = useState<any>(null)
@@ -89,23 +87,11 @@ const VTOModelContainer = (props: {
     const threeObject3D = threeObject3DParent.children[0]
     if (!threeObject3D || threeObject3D.children.length === 0) return
     const model = threeObject3D.children[0]
-    if (props.autoFitModel && !fittedRef.current) {
-      const box = new Box3().setFromObject(model)
-      const size = new Vector3()
-      box.getSize(size)
-      const center = new Vector3()
-      box.getCenter(center)
-      const targetWidth = 154
-      const currentWidth = size.x || 1
-      const scaleFactor = targetWidth / currentWidth
-      // center model around origin first
-      model.position.sub(center)
-      model.scale.multiplyScalar(scaleFactor)
-      model.position.add(new Vector3(-50, 49, -30))
-      model.rotation.set(-0.38, Math.PI / 2, 0)
-      fittedRef.current = true
-    } else {
+
+    // Use the tested set_glassesPose helper instead of custom positioning
+    if (!fittedRef.current) {
       mirrorHelper.set_glassesPose(model)
+      fittedRef.current = true
     }
     mirrorHelper.tweak_materials(model, props.glassesBranches)
     mirrorHelper.set_faceFollower(threeObject3DParent, threeObject3D, props.faceIndex)
@@ -117,7 +103,6 @@ const VTOModelContainer = (props: {
     props.isMirrorReady,
     modelScene,
     occluderMesh,
-    props.autoFitModel,
   ])
 
   useEffect(() => {
@@ -209,13 +194,11 @@ const DebugCube = (props: { size?: number }) => {
 }
 
 export default function VTOGlassesAR({
-  modelUrl = "/models3D/glasses1.glb",
+  modelUrl = "", //"/models3D/glasses1.glb"
   occluderUrl = "/models3D/occluder.glb",
   envMapUrl = "/envmaps/venice_sunset_1k.hdr",
   cameraOnly = false,
-  autoFitModel,
 }: Props) {
-  const shouldAutoFitModel = autoFitModel ?? modelUrl.includes("sunglass")
   const [sizing, setSizing] = useState<Sizing>(() =>
     typeof window !== "undefined" ? computeSizing() : { width: 640, height: 480, top: 0, left: 0 }
   )
@@ -225,6 +208,7 @@ export default function VTOGlassesAR({
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [modelError, setModelError] = useState<string | null>(null)
   const [isMirrorReady, setIsMirrorReady] = useState(false)
+  const [faceDetected, setFaceDetected] = useState(false)
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [deviceId, setDeviceId] = useState<string | null>(null)
 
@@ -232,6 +216,7 @@ export default function VTOGlassesAR({
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const autoInitRef = useRef(false)
+  const faceDetectedRef = useRef(false)
 
   const _settings = {
     glassesBranches: {
@@ -243,7 +228,7 @@ export default function VTOGlassesAR({
 
     lighting: {
       envMap: envMapUrl,
-      pointLightIntensity: 0.6,
+      pointLightIntensity: 0.8,
       pointLightY: 200,
       hemiLightIntensity: 0,
     } satisfies LightingSpec,
@@ -251,13 +236,14 @@ export default function VTOGlassesAR({
     GLTFOccluderModel: occluderUrl,
 
     bloom: {
-      threshold: 0.6,
-      intensity: 5,
+      threshold: 0.5,
+      intensity: 8,
       kernelSizeLevel: 0,
-      computeScale: 0.4,
-      luminanceSmoothing: 0.5,
+      computeScale: 0.5,
+      luminanceSmoothing: 0.7,
     },
   }
+
 
   const isSecure = typeof window !== "undefined" && window.isSecureContext
 
@@ -280,10 +266,10 @@ export default function VTOGlassesAR({
   const attachListeners = () => {
     const ro = window.ResizeObserver
       ? new ResizeObserver(() => {
-          const newSizing = getContainerSizing()
-          setSizing(newSizing)
-          mirrorHelper.resize()
-        })
+        const newSizing = getContainerSizing()
+        setSizing(newSizing)
+        mirrorHelper.resize()
+      })
       : null
     if (ro && containerRef.current) ro.observe(containerRef.current)
     const handleResize = () => updateSizingFromContainer()
@@ -353,7 +339,7 @@ export default function VTOGlassesAR({
       throw new Error("Video belum siap. Coba lagi.")
     }
     videoRef.current.srcObject = stream
-    await videoRef.current.play().catch(() => {})
+    await videoRef.current.play().catch(() => { })
 
     // wait for video to have dimensions
     await new Promise<void>((resolve, reject) => {
@@ -391,6 +377,8 @@ export default function VTOGlassesAR({
     }
     if (_initInFlight) return _initInFlight
     initFlag.value = true
+    setFaceDetected(false)
+    faceDetectedRef.current = false
     detachListeners()
     if (!canvasFaceRef.current) {
       initFlag.value = false
@@ -404,9 +392,9 @@ export default function VTOGlassesAR({
         ...(resolvedVideoSettings ? { videoSettings: resolvedVideoSettings } : {}),
         scanSettings: { threshold: 0.8 },
         landmarksStabilizerSpec: {
-          beta: 10,
-          minCutOff: 0.001,
-          freqRange: [2, 144],
+          beta: 1,
+          minCutOff: 0.004,
+          freqRange: [5, 144],
           forceFilterNNInputPxRange: [2.5, 6],
         },
         solvePnPImgPointsLabels: [
@@ -420,6 +408,13 @@ export default function VTOGlassesAR({
         ],
         canvasFace: canvasFaceRef.current,
         maxFacesDetected: 1,
+        callbackTrack: (detectState: any) => {
+          // Hanya set faceDetected = true pada deteksi pertama
+          if (detectState.isDetected && !faceDetectedRef.current) {
+            faceDetectedRef.current = true
+            setFaceDetected(true)
+          }
+        },
       })
       .then(() => {
         attachListeners()
@@ -475,13 +470,15 @@ export default function VTOGlassesAR({
 
   const handleDeviceChange = async (newDeviceId: string | null) => {
     setDeviceId(newDeviceId)
+    setFaceDetected(false)
+    faceDetectedRef.current = false
     if (cameraOnly) return
     if (!newDeviceId) return
     try {
       setStatusMessage("Mengganti kamera...")
       await requestCameraPermission(false)
       if (_initInFlight) {
-        await _initInFlight.catch(() => {})
+        await _initInFlight.catch(() => { })
       }
       await ensureDestroyed()
       const initFlag = getInitFlag()
@@ -507,6 +504,8 @@ export default function VTOGlassesAR({
       detachListeners()
       stopVideoStream()
       setIsMirrorReady(false)
+      setFaceDetected(false)
+      faceDetectedRef.current = false
       const initFlag = getInitFlag()
       initFlag.value = false
       setIsReady(false)
@@ -620,16 +619,17 @@ export default function VTOGlassesAR({
           <ThreeGrabber sizing={sizing} lighting={_settings.lighting} />
 
           <Suspense fallback={<DebugCube />}>
-            <VTOModelContainer
-              sizing={sizing}
-              GLTFModel={modelUrl}
-              GLTFOccluderModel={_settings.GLTFOccluderModel}
-              faceIndex={0}
-              glassesBranches={_settings.glassesBranches}
-              isMirrorReady={isMirrorReady}
-              autoFitModel={shouldAutoFitModel}
-              onModelError={setModelError}
-            />
+            {faceDetected && (
+              <VTOModelContainer
+                sizing={sizing}
+                GLTFModel={modelUrl}
+                GLTFOccluderModel={_settings.GLTFOccluderModel}
+                faceIndex={0}
+                glassesBranches={_settings.glassesBranches}
+                isMirrorReady={isMirrorReady}
+                onModelError={setModelError}
+              />
+            )}
           </Suspense>
 
           <EffectComposer>
@@ -680,7 +680,7 @@ export default function VTOGlassesAR({
         </div>
       )}
 
-      {(!isSecure || cameraError || (!isReady && !cameraOnly)) && (
+      {(!isReady && !cameraOnly) && (
         <div
           style={{
             position: "absolute",

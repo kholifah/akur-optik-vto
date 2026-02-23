@@ -63,7 +63,7 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 	// variants with same product name (e.g., color variants)
 	const variants = allProducts.filter((p) => p.name === product.name)
 	const currentProduct = variants.find((v) => v.id === selectedId) ?? product
-	const modelUrl = `/models3D/glasses1.glb`
+	const modelUrl = currentProduct.modelUrl || `/models3D/${currentProduct.id}.glb`
 
 	const rating = 4.8
 	const reviews = 7

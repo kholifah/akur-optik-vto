@@ -1,10 +1,10 @@
 "use client"
 
-import React, { Suspense, useEffect, useRef, useState } from "react"
+import React, { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import { EffectComposer, Bloom } from "@react-three/postprocessing"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
-import { Box3, Vector3 } from "three"
+import { Box3, Vector3, Object3D } from "three"
 
 import NN from "@/contrib/WebARRocksFace/neuralNets/NN_GLASSES_6.json"
 import mirrorHelper from "@/contrib/WebARRocksFace/helpers/WebARRocksMirror.js"
@@ -15,23 +15,38 @@ type Props = {
   envMapUrl?: string
   cameraOnly?: boolean
   autoFitModel?: boolean
+  active?: boolean
 }
 
 type VideoSettingsOverride = MediaTrackConstraints | true
 
-let _threeFiber: any = null
+type InitFlag = { value: boolean }
+type WebARRocksWindow = Window & { __WEBARROCKS_INIT_FLAG?: InitFlag }
+
+const getErrorName = (err: unknown): string | null => {
+  if (err && typeof err === "object" && "name" in err) {
+    const name = (err as { name?: unknown }).name
+    return typeof name === "string" ? name : null
+  }
+  return null
+}
+
+const getErrorMessage = (err: unknown, fallback: string): string => {
+  if (err instanceof Error) return err.message
+  if (typeof err === "string") return err
+  return fallback
+}
 let _initInFlight: Promise<void> | null = null
 let _destroyInFlight: Promise<void> | null = null
 const getInitFlag = () => {
   if (typeof window === "undefined") return { value: false }
-  const w = window as any
+  const w = window as WebARRocksWindow
   if (!w.__WEBARROCKS_INIT_FLAG) w.__WEBARROCKS_INIT_FLAG = { value: false }
-  return w.__WEBARROCKS_INIT_FLAG as { value: boolean }
+  return w.__WEBARROCKS_INIT_FLAG
 }
 
 const ThreeGrabber = (props: { sizing: Sizing; lighting: LightingSpec }) => {
   const threeFiber = useThree()
-  _threeFiber = threeFiber
 
   useFrame(mirrorHelper.update.bind(null, props.sizing, threeFiber.camera))
   mirrorHelper.set_lighting(threeFiber.gl, threeFiber.scene, props.lighting)
@@ -56,69 +71,23 @@ const computeSizing = (): Sizing => {
   const left = (wWidth - width) / 2
   return { width, height, top, left }
 }
+// ...existing code...
 
 const VTOModelContainer = (props: {
   GLTFModel: string
   GLTFOccluderModel: string
-  sizing: Sizing
-  faceIndex: number
-  glassesBranches: GlassesBranchSpec
-  isMirrorReady: boolean
-  autoFitModel: boolean
   onModelError?: (message: string | null) => void
 }) => {
-  const [modelScene, setModelScene] = useState<any>(null)
-  const [occluderMesh, setOccluderMesh] = useState<any>(null)
+  const {
+    GLTFModel,
+    GLTFOccluderModel,
+    onModelError,
+  } = props
+  const [modelScene, setModelScene] = useState<Object3D | null>(null)
+  const [occluderMesh, setOccluderMesh] = useState<Object3D | null>(null)
   const [modelLoaded, setModelLoaded] = useState(false)
   const [occluderLoaded, setOccluderLoaded] = useState(false)
-  const fittedRef = useRef(false)
-
-  const objRef = useRef<any>(null)
-  useEffect(() => {
-    mirrorHelper.clean()
-    fittedRef.current = false
-    return () => {
-      mirrorHelper.clean()
-    }
-  }, [props.GLTFModel, props.GLTFOccluderModel])
-
-  useEffect(() => {
-    if (!props.isMirrorReady) return
-    const threeObject3DParent = objRef.current
-    if (!threeObject3DParent || threeObject3DParent.children.length === 0) return
-    const threeObject3D = threeObject3DParent.children[0]
-    if (!threeObject3D || threeObject3D.children.length === 0) return
-    const model = threeObject3D.children[0]
-    if (props.autoFitModel && !fittedRef.current) {
-      const box = new Box3().setFromObject(model)
-      const size = new Vector3()
-      box.getSize(size)
-      const center = new Vector3()
-      box.getCenter(center)
-      const targetWidth = 154
-      const currentWidth = size.x || 1
-      const scaleFactor = targetWidth / currentWidth
-      // center model around origin first
-      model.position.sub(center)
-      model.scale.multiplyScalar(scaleFactor)
-      model.position.add(new Vector3(-50, 49, -30))
-      model.rotation.set(-0.38, Math.PI / 2, 0)
-      fittedRef.current = true
-    } else {
-      mirrorHelper.set_glassesPose(model)
-    }
-    mirrorHelper.tweak_materials(model, props.glassesBranches)
-    mirrorHelper.set_faceFollower(threeObject3DParent, threeObject3D, props.faceIndex)
-  }, [
-    props.GLTFModel,
-    props.sizing,
-    props.faceIndex,
-    props.glassesBranches,
-    props.isMirrorReady,
-    modelScene,
-    occluderMesh,
-    props.autoFitModel,
-  ])
+  const objRef = useRef<Object3D | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -126,16 +95,16 @@ const VTOModelContainer = (props: {
     setOccluderMesh(null)
     setModelLoaded(false)
     setOccluderLoaded(false)
-    props.onModelError?.(null)
+    onModelError?.(null)
 
     const loader = new GLTFLoader()
     loader.load(
-      props.GLTFModel,
+      GLTFModel,
       (gltf) => {
         if (cancelled) return
         const scene = (gltf.scene || gltf.scenes?.[0])?.clone?.() ?? null
         if (!scene) {
-          props.onModelError?.("Model 3D kosong atau tidak valid.")
+          onModelError?.("Model 3D kosong atau tidak valid.")
           return
         }
         setModelScene(scene)
@@ -144,18 +113,18 @@ const VTOModelContainer = (props: {
       undefined,
       () => {
         if (cancelled) return
-        props.onModelError?.("Gagal memuat model 3D. Periksa file GLB.")
+        onModelError?.("Gagal memuat model 3D. Periksa file GLB.")
       }
     )
 
     const loaderOccluder = new GLTFLoader()
     loaderOccluder.load(
-      props.GLTFOccluderModel,
+      GLTFOccluderModel,
       (gltf) => {
         if (cancelled) return
         const occluderScene = (gltf.scene || gltf.scenes?.[0])?.clone?.() ?? null
         if (!occluderScene) {
-          props.onModelError?.("Occluder 3D kosong atau tidak valid.")
+          onModelError?.("Occluder 3D kosong atau tidak valid.")
           return
         }
         const isDebugOccluder = false
@@ -166,18 +135,18 @@ const VTOModelContainer = (props: {
       undefined,
       () => {
         if (cancelled) return
-        props.onModelError?.("Gagal memuat occluder 3D. Periksa file GLB.")
+        onModelError?.("Gagal memuat occluder 3D. Periksa file GLB.")
       }
     )
 
     return () => {
       cancelled = true
     }
-  }, [props.GLTFModel, props.GLTFOccluderModel])
+  }, [GLTFModel, GLTFOccluderModel, onModelError])
 
   useEffect(() => {
-    if (modelLoaded && occluderLoaded) props.onModelError?.(null)
-  }, [modelLoaded, occluderLoaded, props.onModelError])
+    if (modelLoaded && occluderLoaded) onModelError?.(null)
+  }, [modelLoaded, occluderLoaded, onModelError])
 
   if (!modelScene || !occluderMesh) return null
 
@@ -214,6 +183,7 @@ export default function VTOGlassesAR({
   envMapUrl = "/envmaps/venice_sunset_1k.hdr",
   cameraOnly = false,
   autoFitModel,
+  active = true,
 }: Props) {
   const shouldAutoFitModel = autoFitModel ?? modelUrl.includes("sunglass")
   const [sizing, setSizing] = useState<Sizing>(() =>
@@ -261,28 +231,26 @@ export default function VTOGlassesAR({
 
   const isSecure = typeof window !== "undefined" && window.isSecureContext
 
-  const getContainerSizing = () => {
+  const getContainerSizing = useCallback(() => {
     const rect = containerRef.current?.getBoundingClientRect()
     if (rect?.width && rect?.height) {
       return { width: rect.width, height: rect.height, top: 0, left: 0 }
     }
     return computeSizing()
-  }
+  }, [])
 
-  const updateSizingFromContainer = () => {
+  const updateSizingFromContainer = useCallback(() => {
     const newSizing = getContainerSizing()
     setSizing(newSizing)
     mirrorHelper.resize()
-  }
+  }, [getContainerSizing])
 
   const listenersCleanupRef = useRef<null | (() => void)>(null)
 
-  const attachListeners = () => {
+  const attachListeners = useCallback(() => {
     const ro = window.ResizeObserver
       ? new ResizeObserver(() => {
-          const newSizing = getContainerSizing()
-          setSizing(newSizing)
-          mirrorHelper.resize()
+          updateSizingFromContainer()
         })
       : null
     if (ro && containerRef.current) ro.observe(containerRef.current)
@@ -295,16 +263,16 @@ export default function VTOGlassesAR({
       window.removeEventListener("resize", handleResize)
       window.removeEventListener("orientationchange", handleResize)
     }
-  }
+  }, [updateSizingFromContainer])
 
-  const detachListeners = () => {
+  const detachListeners = useCallback(() => {
     if (listenersCleanupRef.current) {
       listenersCleanupRef.current()
       listenersCleanupRef.current = null
     }
-  }
+  }, [])
 
-  const stopVideoStream = () => {
+  const stopVideoStream = useCallback(() => {
     try {
       const prev = videoRef.current?.srcObject as MediaStream | null
       prev?.getTracks().forEach((t) => t.stop())
@@ -312,69 +280,112 @@ export default function VTOGlassesAR({
     } catch {
       // ignore
     }
-  }
+  }, [])
 
-  const refreshDevices = async () => {
+  const refreshDevices = useCallback(async () => {
     try {
       const list = await navigator.mediaDevices.enumerateDevices()
       const cams = list.filter((d) => d.kind === "videoinput")
       setDevices(cams)
-      if (!deviceId && cams.length > 0) setDeviceId(cams[0].deviceId)
+      let nextDeviceId: string | null = null
+      if (cams.length > 0) {
+        nextDeviceId = deviceId && cams.some((d) => d.deviceId === deviceId)
+          ? deviceId
+          : cams[0].deviceId
+      }
+      if (nextDeviceId !== deviceId) setDeviceId(nextDeviceId)
+      return nextDeviceId
     } catch {
       // ignore
+      return deviceId ?? null
     }
-  }
+  }, [deviceId])
 
   const startVideoStream = async () => {
+    console.log("[startVideoStream] 🎬 Starting video stream...")
+    
     if (!navigator?.mediaDevices?.getUserMedia) {
+      console.error("[startVideoStream] ❌ getUserMedia not supported")
       setCameraError("Browser tidak mendukung kamera (getUserMedia).")
       throw new Error("Browser tidak mendukung kamera (getUserMedia).")
     }
+    
+    console.log("[startVideoStream] 🛑 Stopping existing stream if any...")
     stopVideoStream()
 
-    await refreshDevices()
+    console.log("[startVideoStream] 🔄 Refreshing devices...")
+    const preferredDeviceId = await refreshDevices()
+    console.log("[startVideoStream] 📱 Preferred device ID:", preferredDeviceId)
 
     const primaryConstraints: MediaStreamConstraints = {
-      video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" },
+      video: preferredDeviceId
+        ? { deviceId: { exact: preferredDeviceId } }
+        : { facingMode: "user" },
     }
+    console.log("[startVideoStream] 📋 Constraints:", primaryConstraints)
 
     let stream: MediaStream
     try {
+      console.log("[startVideoStream] 📸 Requesting getUserMedia...")
       stream = await navigator.mediaDevices.getUserMedia(primaryConstraints)
-    } catch (err: any) {
-      if (err?.name === "NotReadableError" || err?.name === "OverconstrainedError") {
+      console.log("[startVideoStream] ✅ Stream obtained, tracks:", stream.getTracks().length)
+    } catch (err: unknown) {
+      const name = getErrorName(err)
+      console.warn("[startVideoStream] ⚠️ Primary request failed with:", name)
+      
+      if (name === "NotReadableError" || name === "OverconstrainedError") {
+        console.log("[startVideoStream] 🔄 Retrying with fallback constraints...")
         stream = await navigator.mediaDevices.getUserMedia({ video: true })
+        console.log("[startVideoStream] ✅ Fallback stream obtained")
       } else {
+        console.error("[startVideoStream] ❌ Failed to get stream:", err)
         throw err
       }
     }
 
     if (!videoRef.current) {
+      console.error("[startVideoStream] ❌ Video element not ready!")
       throw new Error("Video belum siap. Coba lagi.")
     }
+    
+    console.log("[startVideoStream] 📺 Attaching stream to video element...")
     videoRef.current.srcObject = stream
-    await videoRef.current.play().catch(() => {})
+    
+    console.log("[startVideoStream] ▶️ Starting video playback...")
+    await videoRef.current.play().catch((e) => {
+      console.warn("[startVideoStream] ⚠️ Video play() failed:", e)
+    })
 
     // wait for video to have dimensions
+    console.log("[startVideoStream] ⏳ Waiting for video dimensions...")
     await new Promise<void>((resolve, reject) => {
       const t0 = Date.now()
       const tick = () => {
         const v = videoRef.current
-        if (v && v.videoWidth > 0 && v.videoHeight > 0) return resolve()
-        if (Date.now() - t0 > 3000) return reject(new Error("Video belum siap."))
+        if (v && v.videoWidth > 0 && v.videoHeight > 0) {
+          console.log(`[startVideoStream] ✅ Video ready: ${v.videoWidth}x${v.videoHeight}`)
+          return resolve()
+        }
+        if (Date.now() - t0 > 3000) {
+          console.error("[startVideoStream] ❌ Video dimensions timeout")
+          return reject(new Error("Video belum siap."))
+        }
         requestAnimationFrame(tick)
       }
       tick()
     })
 
+    console.log("[startVideoStream] ✅ Video stream started successfully")
     setCameraError(null)
   }
 
-  const ensureDestroyed = async () => {
+  const isInitializedRef = useRef(false)
+  const ensureDestroyed = useCallback(async () => {
+    isInitializedRef.current = false;
     if (!_destroyInFlight) {
       _destroyInFlight = mirrorHelper
         .destroy()
-        .catch((err: any) => {
+        .catch((err: unknown) => {
           if (err === "ALREADY_DESTROYING") return
         })
         .finally(() => {
@@ -382,22 +393,46 @@ export default function VTOGlassesAR({
         })
     }
     return _destroyInFlight
-  }
+  }, [])
 
-  const initMirror = async (videoSettingsOverride?: VideoSettingsOverride): Promise<void> => {
+  const initMirror = useCallback(async (videoSettingsOverride?: VideoSettingsOverride): Promise<void> => {
+    if (isInitializedRef.current) {
+      console.warn("[initMirror] 🚫 Already initialized, skipping.")
+      return
+    }
+    console.log("[initMirror] 🎬 Starting WebARRock initialization...")
     const initFlag = getInitFlag()
+    console.log("[initMirror] 🏁 Init flag value:", initFlag.value)
     if (initFlag.value) {
+      console.warn("[initMirror] ⚠️ Already initializing or initialized (flag)")
       return _initInFlight ?? Promise.reject(new Error("Inisialisasi kamera sedang berjalan."))
     }
-    if (_initInFlight) return _initInFlight
+    if (_initInFlight) {
+      console.log("[initMirror] ⏳ Init already in flight, returning existing promise")
+      return _initInFlight
+    }
     initFlag.value = true
+    isInitializedRef.current = true
     detachListeners()
     if (!canvasFaceRef.current) {
+      console.error("[initMirror] ❌ Canvas not ready!")
       initFlag.value = false
+      isInitializedRef.current = false
       return Promise.reject(new Error("Canvas belum siap. Coba lagi."))
     }
+    
+    console.log("[initMirror] ✅ Canvas ready")
+    console.log("[initMirror] 📷 Device ID:", deviceId)
+    console.log("[initMirror] 📷 Available devices:", devices.length)
+    
+    const resolvedDeviceId = deviceId && devices.some((d) => d.deviceId === deviceId)
+      ? deviceId
+      : null
     const resolvedVideoSettings =
-      videoSettingsOverride ?? (deviceId ? { deviceId: { exact: deviceId } } : undefined)
+      videoSettingsOverride ?? (resolvedDeviceId ? { deviceId: { exact: resolvedDeviceId } } : undefined)
+    
+    console.log("[initMirror] 🎥 Video settings:", resolvedVideoSettings)
+    
     _initInFlight = mirrorHelper
       .init({
         NN,
@@ -422,54 +457,91 @@ export default function VTOGlassesAR({
         maxFacesDetected: 1,
       })
       .then(() => {
+        console.log("[initMirror] ✅ WebARRock initialized successfully!")
         attachListeners()
         updateSizingFromContainer()
         setIsReady(true)
         setIsMirrorReady(true)
         setStatusMessage("AR aktif")
+        console.log("[initMirror] 🎉 AR is now active and ready")
         void refreshDevices()
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
+        console.error("[initMirror] ❌ WebARRock init failed:", err)
+        console.error("[initMirror] Error type:", typeof err)
+        console.error("[initMirror] Error details:", JSON.stringify(err))
         setIsReady(false)
         setIsMirrorReady(false)
-        if (err === "ALREADY_INITIALIZED" || err === "ALREADY_DESTROYING") return
+        if (err === "ALREADY_INITIALIZED" || err === "ALREADY_DESTROYING") {
+          console.log("[initMirror] ℹ️ Special case error (already initialized/destroying), not throwing")
+          return
+        }
+        isInitializedRef.current = false
         throw err
       })
       .finally(() => {
+        console.log("[initMirror] 🏁 Init flight completed, cleaning up flags")
         _initInFlight = null
         initFlag.value = false
       })
     return _initInFlight
-  }
+  }, [attachListeners, detachListeners, deviceId, devices, refreshDevices, updateSizingFromContainer])
 
   const requestCameraPermission = async (forPreview: boolean) => {
+    console.log("[requestCameraPermission] 🎥 Starting, forPreview:", forPreview)
     try {
       if (forPreview) {
+        console.log("[requestCameraPermission] 📹 Preview mode, calling startVideoStream")
         await startVideoStream()
         return
       }
+      
+      console.log("[requestCameraPermission] 🔍 Checking getUserMedia support...")
       if (!navigator?.mediaDevices?.getUserMedia) {
+        console.error("[requestCameraPermission] ❌ getUserMedia not supported")
         setCameraError("Browser tidak mendukung kamera (getUserMedia).")
         throw new Error("Browser tidak mendukung kamera (getUserMedia).")
       }
+      
+      console.log("[requestCameraPermission] ✅ getUserMedia supported")
+      console.log("[requestCameraPermission] 🔄 Refreshing devices...")
+      const preferredDeviceId = await refreshDevices()
+      console.log("[requestCameraPermission] 📱 Preferred device:", preferredDeviceId)
+      
       const primaryConstraints: MediaStreamConstraints = {
-        video: deviceId ? { deviceId: { exact: deviceId } } : true,
+        video: preferredDeviceId ? { deviceId: { exact: preferredDeviceId } } : true,
       }
+      console.log("[requestCameraPermission] 📋 Primary constraints:", primaryConstraints)
+      
       let stream: MediaStream
       try {
+        console.log("[requestCameraPermission] 📸 Requesting media stream...")
         stream = await navigator.mediaDevices.getUserMedia(primaryConstraints)
-      } catch (err: any) {
-        if (err?.name === "NotReadableError" || err?.name === "OverconstrainedError") {
+        console.log("[requestCameraPermission] ✅ Media stream obtained successfully")
+      } catch (err: unknown) {
+        const name = getErrorName(err)
+        console.warn("[requestCameraPermission] ⚠️ Primary request failed with:", name)
+        
+        if (name === "NotReadableError" || name === "OverconstrainedError") {
+          console.log("[requestCameraPermission] 🔄 Retrying with fallback constraints...")
           stream = await navigator.mediaDevices.getUserMedia({ video: true })
+          console.log("[requestCameraPermission] ✅ Fallback stream obtained")
         } else {
           throw err
         }
       }
+      
+      console.log("[requestCameraPermission] 🛑 Stopping permission test stream...")
       stream.getTracks().forEach((t) => t.stop())
+      console.log("[requestCameraPermission] 🔄 Refreshing devices after permission...")
       await refreshDevices()
       setCameraError(null)
-    } catch (err: any) {
-      setCameraError(err?.message || "Izin kamera ditolak atau gagal.")
+      console.log("[requestCameraPermission] ✅ Camera permission granted successfully")
+    } catch (err: unknown) {
+      const errorMsg = getErrorMessage(err, "Izin kamera ditolak atau gagal.")
+      console.error("[requestCameraPermission] ❌ Failed:", errorMsg)
+      console.error("[requestCameraPermission] Error details:", err)
+      setCameraError(errorMsg)
     }
   }
 
@@ -487,15 +559,17 @@ export default function VTOGlassesAR({
       const initFlag = getInitFlag()
       initFlag.value = false
       await initMirror({ deviceId: { exact: newDeviceId } })
-    } catch (err: any) {
-      setCameraError(err?.message || "Gagal mengganti kamera.")
+    } catch (err: unknown) {
+      setCameraError(getErrorMessage(err, "Gagal mengganti kamera."))
     } finally {
       setStatusMessage(null)
     }
   }
 
   useEffect(() => {
+    if (!active) return
     const loadDevices = async () => {
+      console.log("[VTOGlassesAR] 🔍 Loading camera devices...")
       await refreshDevices()
     }
     if (typeof navigator !== "undefined" && navigator.mediaDevices) {
@@ -503,7 +577,12 @@ export default function VTOGlassesAR({
     }
 
     return () => {
-      _threeFiber = null
+      try {
+        console.log("[VTOGlassesAR] 🛑 Pausing AR on cleanup...")
+        mirrorHelper.pause(true)
+      } catch {
+        // ignore
+      }
       detachListeners()
       stopVideoStream()
       setIsMirrorReady(false)
@@ -511,34 +590,37 @@ export default function VTOGlassesAR({
       initFlag.value = false
       setIsReady(false)
       if (!_destroyInFlight) {
+        console.log("[VTOGlassesAR] 🗑️ Destroying WebARRock instance...")
         _destroyInFlight = mirrorHelper
           .destroy()
-          .catch((err: any) => {
+          .catch((err: unknown) => {
             if (err === "ALREADY_DESTROYING") return
+            console.warn("[VTOGlassesAR] ⚠️ Error destroying:", err)
           })
           .finally(() => {
             _destroyInFlight = null
+            console.log("[VTOGlassesAR] ✅ WebARRock destroyed")
           })
       }
     }
-  }, [])
+  }, [active, detachListeners, ensureDestroyed, refreshDevices, stopVideoStream])
+
+  // REMOVED: Auto-initialization useEffect
+  // Camera MUST be triggered by explicit user button click (handleStart)
+  // This ensures getUserMedia has proper user gesture context
 
   useEffect(() => {
-    if (cameraOnly) return
-    if (autoInitRef.current) return
-    if (!canvasFaceRef.current) return
-    autoInitRef.current = true
-    const nextSizing = getContainerSizing()
-    setSizing(nextSizing)
-    canvasFaceRef.current.width = Math.max(1, Math.floor(nextSizing.width))
-    canvasFaceRef.current.height = Math.max(1, Math.floor(nextSizing.height))
-    setStatusMessage("Memulai AR...")
-    initMirror().catch((err: any) => {
-      setCameraError(err?.message || "Gagal mengaktifkan kamera.")
-      setStatusMessage(null)
-      autoInitRef.current = false
-    })
-  }, [cameraOnly])
+    if (active) return
+    console.log("[VTOGlassesAR] ⏹️ Active=false, resetting state...")
+    autoInitRef.current = false
+    setStatusMessage(null)
+    setCameraError(null)
+    setIsReady(false)
+    setIsMirrorReady(false)
+    detachListeners()
+    stopVideoStream()
+    void ensureDestroyed()
+  }, [active, detachListeners, ensureDestroyed, stopVideoStream])
 
   useEffect(() => {
     setModelError(null)
@@ -548,37 +630,69 @@ export default function VTOGlassesAR({
   // multiple init/destroy cycles that can stall AR in Next.js dev mode.
 
   const handleStart = async () => {
+    console.log("[VTOGlassesAR] 🚀 Step 1: User clicked Start AR button")
+    console.log("[VTOGlassesAR] 📍 window.isSecureContext:", typeof window !== "undefined" ? window.isSecureContext : "N/A")
+    console.log("[VTOGlassesAR] 📍 navigator.mediaDevices:", typeof navigator !== "undefined" && navigator?.mediaDevices ? "Available" : "NOT AVAILABLE")
+    
     setCameraError(null)
     setStatusMessage("Meminta izin kamera...")
+    
     if (typeof window !== "undefined" && !window.isSecureContext) {
-      setCameraError("Camera memerlukan HTTPS atau localhost.")
+      const errorMsg = "Camera memerlukan HTTPS atau localhost."
+      console.error("[VTOGlassesAR] ❌ Not secure context:", errorMsg)
+      setCameraError(errorMsg)
       setStatusMessage(null)
       return
     }
+    
     setIsStarting(true)
     setIsReady(false)
+    
     try {
+      console.log("[VTOGlassesAR] 🎥 Step 2: Requesting camera permission...")
+      
       if (cameraOnly) {
         await requestCameraPermission(true)
+        console.log("[VTOGlassesAR] ✅ Camera-only mode ready")
         setStatusMessage(null)
         setIsReady(true)
         return
       }
+      
+      // Request camera permission first
       await requestCameraPermission(false)
-      // ensure canvas is sized before init
+      console.log("[VTOGlassesAR] ✅ Step 3: Camera permission granted")
+      
+      // Ensure canvas is sized before init
       const nextSizing = getContainerSizing()
       setSizing(nextSizing)
+      
       if (!canvasFaceRef.current) {
         throw new Error("Canvas belum siap. Coba lagi.")
       }
+      
       canvasFaceRef.current.width = Math.max(1, Math.floor(nextSizing.width))
       canvasFaceRef.current.height = Math.max(1, Math.floor(nextSizing.height))
+      console.log("[VTOGlassesAR] 📐 Canvas sized:", canvasFaceRef.current.width, "x", canvasFaceRef.current.height)
+      
       setStatusMessage("Memulai AR...")
+      console.log("[VTOGlassesAR] 🔧 Step 4: Initializing WebARRock...")
+      
+      // Reset autoInitRef to allow initialization
+      autoInitRef.current = false
+      
       if (!isMirrorReady && !_initInFlight) {
+        console.log("[VTOGlassesAR] 🎬 Calling initMirror()...")
         await initMirror()
+        console.log("[VTOGlassesAR] ✅ Step 5: WebARRock initialized successfully!")
+      } else {
+        console.log("[VTOGlassesAR] ⚠️ Mirror already ready or init in flight")
       }
-    } catch (err: any) {
-      setCameraError(err?.message || "Gagal mengaktifkan kamera.")
+    } catch (err: unknown) {
+      console.error("[VTOGlassesAR] ❌ Error during start:", err)
+      console.error("[VTOGlassesAR] ❌ Error name:", err && typeof err === "object" && "name" in err ? err.name : "Unknown")
+      console.error("[VTOGlassesAR] ❌ Error message:", err instanceof Error ? err.message : String(err))
+      setCameraError(getErrorMessage(err, "Gagal mengaktifkan kamera."))
       setStatusMessage(null)
     } finally {
       setIsStarting(false)
@@ -621,13 +735,8 @@ export default function VTOGlassesAR({
 
           <Suspense fallback={<DebugCube />}>
             <VTOModelContainer
-              sizing={sizing}
               GLTFModel={modelUrl}
               GLTFOccluderModel={_settings.GLTFOccluderModel}
-              faceIndex={0}
-              glassesBranches={_settings.glassesBranches}
-              isMirrorReady={isMirrorReady}
-              autoFitModel={shouldAutoFitModel}
               onModelError={setModelError}
             />
           </Suspense>
@@ -738,7 +847,10 @@ export default function VTOGlassesAR({
             )}
             <button
               type="button"
-              onClick={() => void refreshDevices()}
+              onClick={() => {
+                void refreshDevices()
+                if (!isReady && !isStarting) void handleStart()
+              }}
               style={{
                 padding: "8px 12px",
                 borderRadius: "8px",

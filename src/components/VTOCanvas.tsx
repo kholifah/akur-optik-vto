@@ -423,6 +423,7 @@ export default function VTOCanvas({
     let mounted = true
     let cameraInstance: any = null
     let faceMesh: any = null
+    const videoEl = videoRef.current
 
     async function loadScript(src: string) {
       if (document.querySelector(`script[src="${src}"]`)) return
@@ -438,13 +439,13 @@ export default function VTOCanvas({
 
     async function init() {
       try {
-        if (!videoRef.current) return
+        if (!videoEl) return
 
         // stop any existing stream before starting a new one
         try {
-          const prev = videoRef.current.srcObject as MediaStream | null
+          const prev = videoEl.srcObject as MediaStream | null
           prev?.getTracks().forEach((t) => t.stop())
-          videoRef.current.srcObject = null
+          videoEl.srcObject = null
         } catch {}
 
         // refresh device list
@@ -471,8 +472,8 @@ export default function VTOCanvas({
           }
         }
 
-        videoRef.current.srcObject = stream
-        await videoRef.current.play().catch(() => {})
+        videoEl.srcObject = stream
+        await videoEl.play().catch(() => {})
 
         await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js")
         await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js")
@@ -504,8 +505,8 @@ export default function VTOCanvas({
           const rect = containerRef.current?.getBoundingClientRect()
           if (!rect) return
 
-          const vw = videoRef.current!.videoWidth
-          const vh = videoRef.current!.videoHeight
+          const vw = videoEl.videoWidth
+          const vh = videoEl.videoHeight
 
           const left: [number, number] = [
             leftEye.x * vw,
@@ -529,9 +530,9 @@ export default function VTOCanvas({
           setRotation(t.rotation)
         })
 
-        cameraInstance = new Camera(videoRef.current, {
+        cameraInstance = new Camera(videoEl, {
           onFrame: async () => {
-            await faceMesh.send({ image: videoRef.current })
+            await faceMesh.send({ image: videoEl })
           },
           width: 640,
           height: 480,
@@ -581,7 +582,7 @@ export default function VTOCanvas({
       try {
         cameraInstance?.stop()
         faceMesh?.close()
-        const s = videoRef.current?.srcObject as MediaStream
+        const s = videoEl?.srcObject as MediaStream | null
         s?.getTracks().forEach((t) => t.stop())
       } catch {}
     }
@@ -600,10 +601,13 @@ export default function VTOCanvas({
       >
         {/* CAMERA OR UPLOADED IMAGE */}
         {uploadedImage ? (
-          <img
+          <Image
             src={uploadedImage}
-            className="absolute inset-0 w-full h-full object-cover"
             alt="uploaded"
+            fill
+            sizes="100vw"
+            className="absolute inset-0 object-cover"
+            unoptimized
           />
         ) : (
           <video

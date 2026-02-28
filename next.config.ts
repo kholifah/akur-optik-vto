@@ -6,12 +6,10 @@ const threeAlias = "./node_modules/three";
 
 const nextConfig: NextConfig = {
   reactStrictMode: false,
-  experimental: {
-    turbo: {
-      resolveAlias: {
-        three: threeAlias,
-        "three/examples/jsm": `${threeAlias}/examples/jsm`,
-      },
+  turbopack: {
+    resolveAlias: {
+      three: threeAlias,
+      "three/examples/jsm": `${threeAlias}/examples/jsm`,
     },
   },
   webpack: (config) => {

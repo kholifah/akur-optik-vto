@@ -1,12 +1,16 @@
 "use client"
 
-import React, { useEffect, useState } from 'react';
-import Image from 'next/image';
-import dynamic from 'next/dynamic';
-import { Product, products as allProducts } from '@/lib/products';
-import { useAppDispatch, addToCart } from '@/store'
+import React, { Suspense, useEffect, useRef, useState } from "react"
+import Image from "next/image"
+import dynamic from "next/dynamic"
+import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber"
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
+import { Box3, Object3D, Vector3 } from "three"
+import { Product, products as allProducts } from "@/lib/products"
+import { useAppDispatch, addToCart } from "@/store"
 
-const VTOGlassesAR = dynamic(() => import('@/components/VTOGlassesAR'), { ssr: false });
+const VTOGlassesAR = dynamic(() => import("@/components/VTOGlassesAR"), { ssr: false })
 
 type Props = {
 	product: Product | null;
@@ -16,15 +20,58 @@ type Props = {
 	onTryOn?: (p: Product) => void;
 };
 
-declare global {
-	interface Window {
-		WEBARROCKSFACE?: Record<string, unknown>;
-	}
+type ModelPreviewProps = { modelUrl: string }
+
+const ModelControls = () => {
+	const { camera, gl } = useThree()
+	const controlsRef = useRef<OrbitControls | null>(null)
+
+	useEffect(() => {
+		const controls = new OrbitControls(camera, gl.domElement)
+		controls.enableDamping = true
+		controls.dampingFactor = 0.08
+		controls.enablePan = false
+		controls.enableZoom = true
+		controls.minDistance = 1.2
+		controls.maxDistance = 4
+		controlsRef.current = controls
+		return () => {
+			controls.dispose()
+		}
+	}, [camera, gl])
+
+	useFrame(() => {
+		controlsRef.current?.update()
+	})
+
+	return null
+}
+
+const ModelPreview = ({ modelUrl }: ModelPreviewProps) => {
+	const gltf = useLoader(GLTFLoader, modelUrl)
+	const modelRef = useRef<Object3D | null>(null)
+	useEffect(() => {
+		const model = modelRef.current
+		if (!model) return
+		const box = new Box3().setFromObject(model)
+		const size = new Vector3()
+		box.getSize(size)
+		const center = new Vector3()
+		box.getCenter(center)
+		const maxDim = Math.max(size.x, size.y, size.z) || 1
+		const scale = 1.6 / maxDim
+		model.position.sub(center)
+		model.scale.setScalar(scale)
+	}, [gltf])
+
+	return <primitive ref={modelRef} object={gltf.scene} />
 }
 
 export function ProductModal({ product, isOpen, startInVTO = false, onClose, onTryOn }: Props) {
-	const [view, setView] = useState<'details' | 'virtual'>(startInVTO ? 'virtual' : 'details')
-	const [virtualTab, setVirtualTab] = useState<'ar' | '3d'>('ar')
+	const [view, setView] = useState<"details" | "virtual">(
+		startInVTO ? "virtual" : "details"
+	)
+	const [virtualTab, setVirtualTab] = useState<"ar" | "3d">("ar")
 	const [selectedId, setSelectedId] = useState<string | null>(product?.id ?? null)
 	const dispatch = useAppDispatch()
 
@@ -39,19 +86,6 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 		setSelectedId(product?.id ?? null)
 	}, [startInVTO, product])
 
-	useEffect(() => {
-		if (view !== 'virtual') return
-		// Load model-viewer for 3D preview
-		const src = 'https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js'
-		if (!document.querySelector(`script[src="${src}"]`)) {
-			const s = document.createElement('script')
-			s.type = 'module'
-			s.src = src
-			document.head.appendChild(s)
-		}
-
-	}, [view])
-
 	if (!isOpen || !product) return null;
 
 	function close() {
@@ -63,7 +97,7 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 	// variants with same product name (e.g., color variants)
 	const variants = allProducts.filter((p) => p.name === product.name)
 	const currentProduct = variants.find((v) => v.id === selectedId) ?? product
-	const modelUrl = `/models3D/glasses1.glb`
+	const modelUrl = "/models3D/glasses1.glb"
 
 	const rating = 4.8
 	const reviews = 7
@@ -84,18 +118,22 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 						<div className="relative h-[420px] bg-black/5 rounded-lg overflow-hidden">
 							{view === 'virtual' ? (
 								virtualTab === 'ar' ? (
-									<VTOGlassesAR modelUrl={modelUrl} />
+									<VTOGlassesAR
+										modelUrl={modelUrl}
+										active={isOpen && view === "virtual" && virtualTab === "ar"}
+									/>
 								) : (
-									React.createElement('model-viewer', {
-										src: modelUrl,
-										alt: currentProduct.name,
-										'auto-rotate': true,
-										'camera-controls': true,
-										'shadow-intensity': '1',
-										exposure: '1',
-										style: { width: '100%', height: '100%' },
-										'aria-label': `3D model of ${currentProduct.name}`,
-									})
+									<Canvas
+										camera={{ position: [0, 0.1, 2.4], fov: 42 }}
+										style={{ width: "100%", height: "100%" }}
+									>
+										<ambientLight intensity={0.6} />
+										<directionalLight position={[2, 3, 4]} intensity={1.2} />
+										<ModelControls />
+										<Suspense fallback={null}>
+											<ModelPreview modelUrl={modelUrl} />
+										</Suspense>
+									</Canvas>
 								)
 							) : (
 								<div className="w-full h-full flex items-center justify-center bg-gray-50">
@@ -119,8 +157,24 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 
 						{/* AR / 3D tabs */}
 						<div className="mt-3 flex gap-2">
-							<button className={`px-3 py-1 rounded ${virtualTab === 'ar' ? 'bg-accent text-accent-foreground' : 'bg-white border'}`} onClick={() => setVirtualTab('ar')}>AR</button>
-							<button className={`px-3 py-1 rounded ${virtualTab === '3d' ? 'bg-accent text-accent-foreground' : 'bg-white border'}`} onClick={() => setVirtualTab('3d')}>3D</button>
+							<button
+								className={`px-3 py-1 rounded ${virtualTab === 'ar' ? 'bg-accent text-accent-foreground' : 'bg-white border'}`}
+								onClick={() => {
+									setView('virtual')
+									setVirtualTab('ar')
+								}}
+							>
+								AR
+							</button>
+							<button
+								className={`px-3 py-1 rounded ${virtualTab === '3d' ? 'bg-accent text-accent-foreground' : 'bg-white border'}`}
+								onClick={() => {
+									setView('virtual')
+									setVirtualTab('3d')
+								}}
+							>
+								3D
+							</button>
 						</div>
 					</div>
 

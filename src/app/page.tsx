@@ -21,15 +21,12 @@
  * Home Page - Landing & Product Catalog
  */
 
-import { useCallback, useState } from 'react';
-import Image from "next/image"
+import { useCallback, useState } from "react"
 import { Button } from '@/components/ui/button';
 import { ProductCard } from '@/components/ProductCard';
 import ProductModal from '@/components/ProductModal';
 import { Product, getProductsByCategory } from '@/lib/products';
 import { useRouter } from 'next/navigation';
-import { Eye } from 'lucide-react';
-import { useAppDispatch, useAppState, openModal, closeModal } from '@/store';
 import Hero from "@/components/Hero";
 
 export default function Home() {
@@ -37,8 +34,6 @@ export default function Home() {
 	const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
 	const [isModalOpen, setIsModalOpen] = useState(false)
 	const [startInVTO, setStartInVTO] = useState(false)
-	const dispatch = useAppDispatch()
-
 	const eyeglasses = getProductsByCategory('eyeglasses')
 	const sunglasses = getProductsByCategory('sunglasses')
 

@@ -1,17 +1,26 @@
 
 "use client"
 
-import React, { useMemo, useState, useEffect } from "react"
+import React, { Suspense, useMemo, useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import ProductCard from "@/components/ProductCard"
 import ProductModal from "@/components/ProductModal"
 import { products as allProducts, Product } from "@/lib/products"
 
-export default function ShopPage() {
+const categoryValues = ["all", "eyeglasses", "sunglasses"] as const
+type Category = (typeof categoryValues)[number]
+
+const getCategoryFromParam = (value: string | null): Category => {
+  if (value && (categoryValues as readonly string[]).includes(value)) {
+    return value as Category
+  }
+  return "all"
+}
+
+function ShopPageContent() {
   const searchParams = useSearchParams()
 
-  const initialCategory =
-    (searchParams.get("category") as "all" | "eyeglasses" | "sunglasses") || "all"
+  const initialCategory = getCategoryFromParam(searchParams.get("category"))
 
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState(initialCategory)
@@ -22,7 +31,7 @@ export default function ShopPage() {
   // 🔄 Update category if URL changes
   useEffect(() => {
     if (searchParams.get("category")) {
-      setCategory(searchParams.get("category") as any)
+      setCategory(getCategoryFromParam(searchParams.get("category")))
     }
   }, [searchParams])
 
@@ -78,10 +87,10 @@ export default function ShopPage() {
       </div>
 
       <div className="flex items-center gap-3 mb-6">
-        {["all", "eyeglasses", "sunglasses"].map((c) => (
+        {categoryValues.map((c) => (
           <button
             key={c}
-            onClick={() => setCategory(c as any)}
+            onClick={() => setCategory(c)}
             className={`px-3 py-1 rounded ${
               category === c
                 ? "bg-accent text-accent-foreground"
@@ -114,5 +123,13 @@ export default function ShopPage() {
         />
       )}
     </div>
+  )
+}
+
+export default function ShopPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8">Loading...</div>}>
+      <ShopPageContent />
+    </Suspense>
   )
 }

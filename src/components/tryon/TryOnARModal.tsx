@@ -82,6 +82,9 @@ export const TryOnARModal = ({ open, onOpenChange, category }: Props) => {
               occluderUrl={occluderUrl}
               envMapUrl={envMapUrl}
               active={hasStarted}
+              autoStartCamera={true}
+              cameraAspectRatio={9 / 16}
+              fillWidthInContainer={true}
             />
           )}
 

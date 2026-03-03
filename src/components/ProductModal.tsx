@@ -75,6 +75,15 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 	const [selectedId, setSelectedId] = useState<string | null>(product?.id ?? null)
 	const dispatch = useAppDispatch()
 
+	// Prefer product-specific model if available
+	// variants with same product name (e.g., color variants)
+	const variants = allProducts.filter((p) => p.name === product?.name)
+	const currentProduct = (variants.find((v) => v.id === selectedId) ?? product) as Product
+	const fallbackModelByCategory = currentProduct?.category === "sunglasses"
+		? "/models3D/sunglass.glb"
+		: "/models3D/glasses1.glb"
+	const modelUrl = currentProduct?.modelUrl || fallbackModelByCategory
+
 	useEffect(() => {
 		if (startInVTO) {
 			setView('virtual')
@@ -86,18 +95,18 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 		setSelectedId(product?.id ?? null)
 	}, [startInVTO, product])
 
+	useEffect(() => {
+		if (isOpen && view === 'virtual' && virtualTab === 'ar') {
+			console.log('VTOGlassesAR modelUrl:', modelUrl)
+		}
+	}, [isOpen, view, virtualTab, modelUrl])
+
 	if (!isOpen || !product) return null;
 
 	function close() {
 		setView('details')
 		onClose()
 	}
-
-	// Prefer product-specific model if available
-	// variants with same product name (e.g., color variants)
-	const variants = allProducts.filter((p) => p.name === product.name)
-	const currentProduct = variants.find((v) => v.id === selectedId) ?? product
-	const modelUrl = "/models3D/glasses1.glb"
 
 	const rating = 4.8
 	const reviews = 7
@@ -121,6 +130,8 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 									<VTOGlassesAR
 										modelUrl={modelUrl}
 										active={isOpen && view === "virtual" && virtualTab === "ar"}
+										autoStartCamera={true}
+										cameraAspectRatio={4 / 3}
 									/>
 								) : (
 									<Canvas
@@ -147,7 +158,7 @@ export function ProductModal({ product, isOpen, startInVTO = false, onClose, onT
 							<div className="absolute left-1/2 transform -translate-x-1/2 bottom-4 w-[92%] flex items-center gap-3 justify-center">
 								<div className="bg-white rounded-lg px-3 py-2 flex gap-3 overflow-x-auto">
 									{variants.map((v) => (
-										<button key={v.id} onClick={() => setSelectedId(v.id)} className={`w-20 h-12 p-1 rounded ${v.id === currentProduct.id ? 'ring-2 ring-accent' : 'ring-0'}`}>
+										  <button key={v.id} onClick={() => setSelectedId(v.id)} className={`w-20 h-12 p-1 rounded ${v.id === (currentProduct?.id ?? '') ? 'ring-2 ring-accent' : 'ring-0'}`}>
 											<Image src={v.image} alt={v.name} width={80} height={48} className="object-contain" />
 										</button>
 									))}

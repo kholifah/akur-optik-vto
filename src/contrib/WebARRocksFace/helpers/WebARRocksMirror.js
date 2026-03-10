@@ -165,7 +165,7 @@ const WebARRocksMirror = (function(){
       // the width of the head in the glasses 3D model is 2
       // and the width of the face in dev/face.obj is 154
       // so we need to scale the 3D model to 154/2 = 70
-      threeGlasses.scale.multiplyScalar(82); //77
+      threeGlasses.scale.set(82, 82, 82); //77
 
       // the origin of the glasses 3D model is the point supporting the glasses
       // (on the base of the nose)

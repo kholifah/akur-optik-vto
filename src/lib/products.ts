@@ -63,7 +63,7 @@ export const products: Product[] = [
     description: 'Minimalist frame with clean lines',
     frameWidth: 140,
     modelUrl: '/models3D/glasses1.glb',
-    modelOffset: { x: 0, y: -8, z: 0, scale: 0.98 },
+    modelOffset: { x: 0, y: -10, z: 0, scale: 1.02 },
     color: 'Silver',
     material: 'Metal',
   },
